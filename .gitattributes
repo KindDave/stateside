@@ -1,0 +1,10 @@
+# Normalize line endings; keep shell scripts LF so Linux CI can run them
+* text=auto eol=lf
+*.bat text eol=crlf
+gradlew text eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jar binary
+*.keystore binary

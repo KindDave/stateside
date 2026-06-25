@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Stateside</string>
+    <string name="title_activity_main">Stateside</string>
+    <string name="package_name">com.stateside.app</string>
+    <string name="custom_url_scheme">com.stateside.app</string>
+</resources>

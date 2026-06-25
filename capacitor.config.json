@@ -1,0 +1,12 @@
+{
+  "appId": "com.stateside.app",
+  "appName": "Stateside",
+  "webDir": "www",
+  "backgroundColor": "#f3e9d2",
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "always"
+  }
+}
