@@ -1,10 +1,12 @@
-/* Stateside service worker — offline app shell */
-const CACHE = "stateside-v1";
+/* Stateside service worker — network-first so updates always arrive when online,
+   cache fallback so it still works offline. Bump CACHE on each release. */
+const CACHE = "stateside-v3";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./lessons.js",
+  "./voice.js",
   "./app.js",
   "./manifest.webmanifest",
   "./icon-192.png",
@@ -18,27 +20,27 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // never cache the Anthropic API or other cross-origin POSTs
   if (e.request.method !== "GET") return;
-  if (url.origin !== self.location.origin && !url.hostname.includes("fonts.g")) return;
+  const sameOrigin = url.origin === self.location.origin;
+  const isFont = url.hostname.includes("fonts.g");
+  if (!sameOrigin && !isFont) return; // never touch the Anthropic API etc.
 
-  // cache-first for app shell + fonts, falling back to network
+  // network-first: always try fresh, fall back to cache (and index.html offline)
   e.respondWith(
-    caches.match(e.request).then((hit) =>
-      hit ||
-      fetch(e.request).then((res) => {
+    fetch(e.request)
+      .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
-      }).catch(() => hit)
-    )
+      })
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("./index.html")))
   );
 });

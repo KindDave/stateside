@@ -119,8 +119,9 @@
 
     /* ---------------- listen ---------------- */
     async startListening(onFinal, onErr) {
-      if (this.active) return;
+      if (this.active) { try { console.log("[voice] startListening ignored (already active)"); } catch {} return; }
       this._onFinal = onFinal; this._onErr = onErr;
+      try { console.log("[voice] startListening platform=" + this.platform + " webSR=" + !!WebSR); } catch {}
 
       if (isNative && NSR) {
         try {
@@ -147,19 +148,46 @@
       }
 
       if (WebSR) {
-        const r = new WebSR();
+        let r;
+        try { r = new WebSR(); } catch { onErr && onErr("start-failed"); return; }
         r.lang = "en-US"; r.interimResults = true; r.maxAlternatives = 3; r.continuous = false;
-        let finalText = "", conf = 0;
+        let finalText = "", conf = 0, done = false;
+
+        // single, guaranteed finalize — guards against iOS firing (or NOT firing) onend
+        const finish = (errCode) => {
+          if (done) return; done = true;
+          clearTimeout(this._watchdog); clearTimeout(this._stopTimer);
+          this.active = false; this._webRec = null; this._finishWeb = null;
+          try { r.onresult = r.onerror = r.onend = null; } catch {}
+          try { console.log("[voice] finish err=" + (errCode || "-") + " text=" + JSON.stringify(finalText.trim())); } catch {}
+          if (errCode) { this._onErr && this._onErr(errCode); }
+          else { this._onFinal && this._onFinal(finalText.trim(), conf); }
+        };
+        this._finishWeb = finish;
+
         r.onresult = (e) => {
+          let interim = "";
           for (let i = e.resultIndex; i < e.results.length; i++) {
             const res = e.results[i];
             if (res.isFinal) { finalText += res[0].transcript + " "; conf = res[0].confidence || conf; }
+            else interim += res[0].transcript;
           }
+          if (this._onInterim) this._onInterim((finalText + " " + interim).trim());
         };
-        r.onerror = (e) => { this.active = false; this._onErr && this._onErr(e.error); };
-        r.onend = () => { this.active = false; this._onFinal && this._onFinal(finalText.trim(), conf); };
+        // iOS often aborts the first attempt during the permission round-trip, and
+        // emits 'no-speech' on quiet input — treat those as an empty (non-error) finish.
+        r.onerror = (e) => {
+          const code = e && e.error;
+          try { console.warn("[voice] SR error: " + code); } catch {}
+          if (code === "no-speech" || code === "aborted") finish();
+          else finish(code || "start-failed");
+        };
+        r.onend = () => { try { console.log("[voice] SR onend"); } catch {} finish(); };
+
         this._webRec = r; this.active = true;
-        try { r.start(); } catch { this.active = false; onErr && onErr("start-failed"); }
+        // watchdog: if the engine never ends (seen on iOS), force-finalize
+        this._watchdog = setTimeout(() => { try { console.warn("[voice] watchdog fired"); } catch {} try { r.stop(); } catch {} finish(); }, 15000);
+        try { r.start(); try { console.log("[voice] SR.start() called"); } catch {} } catch (err) { try { console.warn("[voice] SR.start threw: " + (err && err.message)); } catch {} finish("start-failed"); }
         return;
       }
 
@@ -169,8 +197,14 @@
     stopListening() {
       if (!this.active) return;
       if (isNative && NSR) { NSR.stop().then(() => this._finishNative()).catch(() => this._finishNative()); return; }
-      if (this._webRec) { try { this._webRec.stop(); } catch {} }
+      if (this._webRec) {
+        try { this._webRec.stop(); } catch {}
+        // iOS sometimes never fires onend after a manual stop — finalize anyway
+        this._stopTimer = setTimeout(() => { if (this._finishWeb) this._finishWeb(); }, 1500);
+      }
     },
+
+    onInterim(cb) { this._onInterim = cb; },
 
     _finishNative() {
       if (!this.active) return;

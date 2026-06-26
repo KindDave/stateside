@@ -30,15 +30,18 @@ const ERR = {
   "start-failed": "Couldn't start the mic — try once more."
 };
 
-/* generic mic toggle, one recorder at a time */
-function toggleMic(btn, onFinal, onErr) {
+/* generic mic toggle, one recorder at a time.
+   onListen(text) fires when listening starts and on each interim transcript. */
+function toggleMic(btn, onFinal, onErr, onListen) {
   if (!V) { onErr && onErr("unsupported"); return; }
   if (V.active) { V.stopListening(); return; }
   if (!V.recognitionSupported) { onErr && onErr("unsupported"); return; }
   btn.classList.add("rec"); setOnAir(true);
+  if (onListen) { onListen(""); V.onInterim(onListen); }
+  const clear = () => { btn.classList.remove("rec"); setOnAir(false); V.onInterim(null); };
   V.startListening(
-    (text, conf) => { btn.classList.remove("rec"); setOnAir(false); onFinal(text, conf); },
-    (e) => { btn.classList.remove("rec"); setOnAir(false); onErr && onErr(e); }
+    (text, conf) => { clear(); onFinal(text, conf); },
+    (e) => { clear(); onErr && onErr(e); }
   );
 }
 
@@ -198,7 +201,15 @@ soundDetail.addEventListener("click", (e) => {
   if (mic) {
     toggleMic(mic,
       (text) => showDeckResult(text),
-      (err) => showDeckError(err));
+      (err) => showDeckError(err),
+      (t) => {
+        document.getElementById("deckResult").classList.add("show");
+        document.getElementById("deckFill").style.width = "0%";
+        const sc = document.getElementById("deckScore");
+        sc.textContent = "🎙"; sc.style.color = "var(--gold)";
+        document.getElementById("deckVerdict").textContent = "Listening… tap the mic again when you're done";
+        document.getElementById("deckHeard").textContent = t ? "hearing: " + t : "";
+      });
   }
 });
 function showDeckResult(text) {
@@ -269,6 +280,14 @@ shadowGrid.addEventListener("click", (e) => {
         box.querySelector(".score").textContent = "";
         box.querySelector(".vtxt").textContent = ERR[err] || "Try again.";
         box.querySelector(".heard").textContent = "";
+      },
+      (t) => {
+        const box = card.querySelector(".scard__result");
+        box.classList.add("show");
+        box.querySelector(".score").textContent = "🎙";
+        box.querySelector(".score").style.color = "var(--gold)";
+        box.querySelector(".vtxt").textContent = "Listening… tap again when done";
+        box.querySelector(".heard").textContent = t ? "hearing: " + t : "";
       });
   }
 });
@@ -347,13 +366,14 @@ convMic.addEventListener("click", () => {
   if (!conv) return;
   toggleMic(convMic,
     (text) => {
-      if (!text) { convHint.textContent = "Didn't catch that — tap and try again."; return; }
+      if (!text) { convHint.textContent = "Didn't catch that — tap the mic and try again."; return; }
       convHint.textContent = "Tap the mic and speak your reply";
       bubble(text, "me");
       conv.history.push({ role: "user", content: text });
       respond(text);
     },
-    (err) => { convHint.textContent = ERR[err] || "Try again."; });
+    (err) => { convHint.textContent = ERR[err] || "Try again."; },
+    (t) => { convHint.textContent = t ? "“" + t + "”" : "Listening… tap the mic again to send"; });
 });
 
 async function respond(userText) {
@@ -501,4 +521,30 @@ window.addEventListener("appinstalled", () => { installBtn.hidden = true; });
     const dz = document.getElementById("iosDismiss");
     if (dz) dz.onclick = (e) => { e.preventDefault(); store.set("iosHintSeen", true); n.hidden = true; };
   }
+})();
+
+/* ---------- on-screen debug log (add ?debug to the URL) ---------- */
+(function debugConsole() {
+  if (!/[?&]debug/.test(location.search)) return;
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:0;right:0;bottom:0;max-height:42vh;overflow:auto;z-index:99999;background:rgba(20,14,8,.94);color:#d7f59f;font:11px/1.45 ui-monospace,monospace;padding:8px 10px 14px;border-top:2px solid #d9430f;white-space:pre-wrap;-webkit-overflow-scrolling:touch";
+  const bar = document.createElement("div");
+  bar.style.cssText = "display:flex;gap:8px;margin-bottom:6px;position:sticky;top:0";
+  bar.innerHTML = "<b style='color:#e0a526'>STATESIDE debug</b>";
+  const clr = document.createElement("button");
+  clr.textContent = "clear"; clr.style.cssText = "margin-left:auto;background:#d9430f;color:#fff;border:0;border-radius:6px;padding:2px 10px";
+  const log = document.createElement("div");
+  bar.appendChild(clr); box.appendChild(bar); box.appendChild(log);
+  document.body.appendChild(box);
+  clr.onclick = () => { log.textContent = ""; };
+  const line = (tag, args) => {
+    const t = new Date().toISOString().slice(11, 19);
+    log.textContent += `[${t}] ${tag} ${[...args].map(a => { try { return typeof a === "object" ? JSON.stringify(a) : String(a); } catch { return String(a); } }).join(" ")}\n`;
+    box.scrollTop = box.scrollHeight;
+  };
+  ["log", "warn", "error"].forEach(k => { const o = console[k].bind(console); console[k] = (...a) => { line(k.toUpperCase(), a); o(...a); }; });
+  window.addEventListener("error", e => line("ERROR", [e.message, "@", (e.filename || "") + ":" + (e.lineno || "")]));
+  window.addEventListener("unhandledrejection", e => line("REJECT", [(e.reason && (e.reason.message || e.reason)) || "?"]));
+  if (V) line("INFO", ["platform=" + V.platform, "recognition=" + V.recognitionSupported, "tts=" + V.ttsSupported, "voices=" + V.listVoices().length, "SR=" + (!!(window.SpeechRecognition || window.webkitSpeechRecognition))]);
+  else line("ERROR", ["VoiceEngine missing"]);
 })();
