@@ -10,6 +10,9 @@ It runs **three ways from one codebase**:
 - an installable **PWA** on your phone's home screen,
 - a real **native app** (Android/iOS) via Capacitor, using on-device speech engines.
 
+> **Live app:** https://kinddave.github.io/stateside/ — auto-deployed from `www/` by
+> GitHub Pages. **On iPhone:** open that link in **Safari → Share → Add to Home Screen.**
+
 ## What's inside
 
 **01 · Sounds** — A lab for the sounds that define a General American accent: the rhotic R,
